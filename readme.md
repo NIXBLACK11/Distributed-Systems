@@ -13,3 +13,7 @@ I will also try to fit examples of techniques i have applied at real world place
 Some topis i have already coevered so wont be detailed but will surely will be linked.
 
 This is not necessarily a course of any sort just a thing I created.
+
+
+
+https://chatgpt.com/c/69231905-ec10-8322-a8f1-dfec05b09c50
