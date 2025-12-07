@@ -95,3 +95,7 @@ Some points about failures in deterministicfunctions:
 ✔ Output == what a sequential single-machine run would have produced
 
 https://chatgpt.com/c/692ed453-47b4-8324-8255-4adff0b8762a
+
+### RPCS and Threads
+
+This is basic notes + a worker poll implementation and hopefully stress tested.
