@@ -2,33 +2,49 @@ package main
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 )
 
-func busy() {
+const NUMJOBS = 100
+const NUMWORKERS = 5
+
+func progress() {
 	x := 0
-	for i := 0; i < 10000000; i++ {
+
+	for i := range(10000000) {
 		x += i
 	}
+
 	_ = x
 }
 
-func main() {
-	for _, procs := range []int{1, 2, 4, runtime.NumCPU()} {
-		runtime.GOMAXPROCS(procs)
-		start := time.Now()
-
-		var wg sync.WaitGroup
-		wg.Add(runtime.NumCPU())
-		for i := 0; i < runtime.NumCPU(); i++ {
-			go func() {
-				busy() // CPU-bound
-				wg.Done()
-			}()
-		}
-		wg.Wait()
-		fmt.Printf("GOMAXPROCS=%d took %v\n", procs, time.Since(start))
+func worker(id int, jobs <-chan int, wg *sync.WaitGroup) {
+	for job := range(jobs) {
+		fmt.Printf("Worker %d working on job %d\n", id, job)
+		time.Sleep(500 * time.Millisecond)
+		progress()
+		wg.Done()
 	}
+}
+
+func main() {
+	jobs := make(chan int, NUMJOBS)
+
+	var wg sync.WaitGroup
+
+	wg.Add(NUMJOBS)
+
+	for workerId := range(NUMWORKERS) {
+		go worker(workerId, jobs, &wg)
+	}
+
+	for jobId := range(NUMJOBS) {
+		jobs <- jobId
+	}
+
+	close(jobs)
+
+	wg.Wait()
+	fmt.Println("All jobs done!")
 }
