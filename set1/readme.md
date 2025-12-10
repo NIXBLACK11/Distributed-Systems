@@ -1,4 +1,4 @@
-# Week 1
+# Set 1
 
 ## Progress
 20%

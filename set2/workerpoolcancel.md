@@ -1,3 +1,6 @@
+## Worker pool with cancel
+
+```go
 package main
 
 import (
@@ -80,3 +83,4 @@ func main() {
 	wg.Wait()
 	fmt.Println("All jobs done (wg.Wait returned). Exiting.")
 }
+```
