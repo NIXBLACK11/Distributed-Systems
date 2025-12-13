@@ -2,24 +2,42 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 )
 
+var mu sync.RWMutex
+var data string
+
+func reader(wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	mu.RLock()
+	fmt.Println(data)
+	mu.RUnlock()
+}
+
+func writer(wg *sync.WaitGroup, val string) {
+	defer wg.Done()
+
+	mu.Lock()
+	data = data + " " + val
+	mu.Unlock()
+}
+
 func main() {
-	var counter int
+	data = "Hello random number insert"
+
 	var wg sync.WaitGroup
-	var mu sync.Mutex
+	wg.Add(120)
 
-	for i := 0; i < 1000; i++ {
-		wg.Add(1)
-		go func() {
-			mu.Lock()
-			counter++
-			mu.Unlock()	
-			wg.Done()
-		}()
+	for i := 0; i < 130; i++ {
+		if i%60 == 0 {
+			go writer(&wg, strconv.Itoa(i))
+		} else {
+			go reader(&wg)
+		}
 	}
-
+	
 	wg.Wait()
-	fmt.Println("Final counter:", counter)
 }
