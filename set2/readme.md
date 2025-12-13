@@ -7,6 +7,11 @@
 -  Wrap goroutine pools with context 
 - Build a cancellable job processor
 
+- Read about critical sections  
+- Use go test -race on a buggy program  
+- Fix the race using Mutex  
+- Add RWMutex for performance  
+
 ## Notes:
 
 ### Quick principles
@@ -19,3 +24,5 @@
 ### [Nested goroutines and cancellation propogation](nestedGoroutines.md)
 
 ### [Worker pool with cancel](workerpoolcancel.md)
+
+### [Concurrency](concurrency.md)
