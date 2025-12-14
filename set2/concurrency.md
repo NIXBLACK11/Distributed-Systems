@@ -89,3 +89,60 @@ There are no errors and the output is correct.
 
 And no race warnings, this means we successfully fixed the problem with mutex.
 
+### Problems with mutex
+
+If we have around 100 readers and only 1 writer.
+All the readers will be blocked even tho they don't conflict.
+
+But go has a solution for this too.
+That is sync.RWMutex, this allows us to have:
+- Many readers ate once.
+- Only one writer.
+- Writers block other writers and readers.
+
+Example:
+```go
+package main
+
+import (
+	"fmt"
+	"strconv"
+	"sync"
+)
+
+var mu sync.RWMutex
+var data string
+
+func reader(wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	mu.RLock()
+	fmt.Println(data)
+	mu.RUnlock()
+}
+
+func writer(wg *sync.WaitGroup, val string) {
+	defer wg.Done()
+
+	mu.Lock()
+	data = data + " " + val
+	mu.Unlock()
+}
+
+func main() {
+	data = "Hello random number insert"
+
+	var wg sync.WaitGroup
+	wg.Add(120)
+
+	for i := 0; i < 130; i++ {
+		if i%60 == 0 {
+			go writer(&wg, strconv.Itoa(i))
+		} else {
+			go reader(&wg)
+		}
+	}
+	
+	wg.Wait()
+}
+```

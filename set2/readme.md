@@ -26,3 +26,5 @@
 ### [Worker pool with cancel](workerpoolcancel.md)
 
 ### [Concurrency](concurrency.md)
+
+### [Thread-safe KV store](threadsafekvstore.md)

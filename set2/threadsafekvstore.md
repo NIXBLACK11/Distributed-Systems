@@ -1,3 +1,4 @@
+```go
 package main
 
 import (
@@ -70,3 +71,4 @@ func main() {
 
 	fmt.Println("Done. Final store size:", len(store.data))
 }
+```
