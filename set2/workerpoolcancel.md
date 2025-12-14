@@ -30,6 +30,8 @@ func progress(ctx context.Context) {
 }
 
 func worker(ctx context.Context, id int, jobs <-chan int, wg *sync.WaitGroup) {
+	defer wg.Done() // ✅ worker lifetime tracked
+
 	fmt.Printf("Worker %d: started\n", id)
 	for {
 		select {
@@ -50,7 +52,6 @@ func worker(ctx context.Context, id int, jobs <-chan int, wg *sync.WaitGroup) {
 			progress(jobCtx)
 			cancel()
 
-			wg.Done()
 			fmt.Printf("Worker %d: finished job %d (or was canceled)\n", id, job)
 		}
 	}
@@ -64,7 +65,7 @@ func main() {
 	jobs := make(chan int, NUMJOBS)
 
 	var wg sync.WaitGroup
-	wg.Add(NUMJOBS)
+	wg.Add(NUMWORKERS)
 
 	for workerId := range NUMWORKERS {
 		go worker(ctx, workerId, jobs, &wg)
@@ -81,6 +82,6 @@ func main() {
 	})
 
 	wg.Wait()
-	fmt.Println("All jobs done (wg.Wait returned). Exiting.")
+	fmt.Println("All workers exited cleanly. Exiting.")
 }
 ```

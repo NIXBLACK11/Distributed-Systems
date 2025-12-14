@@ -1,3 +1,18 @@
+# Set3
+
+## Goal:
+- Build fan-out worker system  
+- Build fan-in aggregator  
+- Build 3-stage pipeline  
+- Add error channel 
+
+### FAN-IN and FAN-OUT
+
+This is a simple comcept where our operation is divided into two major parts:
+FAn-Out does the parallelization as it divided the input to multiple workers so they can parallely work on it.
+Fan-in takes the outputs from these multiple workers and combines it into a single result.
+
+```go
 package main
 
 import (
@@ -7,12 +22,12 @@ import (
 	"time"
 )
 
+const NUMJOBS = 20
 const NUMWORKERS = 3
-const NUMJOBS = 200
 
 type Result struct {
-	WorkerId int
-	JobId    int
+	WorkerID int
+	JobID    int
 	Err      error
 }
 
@@ -32,11 +47,13 @@ func progress(ctx context.Context) error {
 	return nil
 }
 
+/* ---------------- FAN-OUT WORKER ---------------- */
+
 func worker(
 	ctx context.Context,
 	id int,
 	jobs <-chan int,
-	result chan<- Result,
+	results chan<- Result,
 	wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
@@ -48,37 +65,41 @@ func worker(
 			fmt.Printf("Worker %d shutting down: %v\n", id, ctx.Err())
 			return
 
-	case job, ok := <-jobs:
-		if !ok {
-			fmt.Printf("Worker %d: jobs closed\n", id)
-			return
-		}
+		case job, ok := <-jobs:
+			if !ok {
+				fmt.Printf("Worker %d: jobs closed\n", id)
+				return
+			}
 
-		jobCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
-		err := progress(jobCtx)
-		cancel()
+			jobCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+			err := progress(jobCtx)
+			cancel()
 
-		result <- Result{
-			WorkerId: id,
-			JobId:    job,
-			Err:      err,
+			results <- Result{
+				WorkerID: id,
+				JobID:    job,
+				Err:      err,
+			}
 		}
 	}
 }
-}
+
+/* ---------------- FAN-IN AGGREGATOR ---------------- */
 
 func aggregator(results <-chan Result, done chan<- struct{}) {
 	for res := range results {
 		if res.Err != nil {
 			fmt.Printf("[AGG] worker=%d job=%d failed: %v\n",
-				res.WorkerId, res.JobId, res.Err)
+				res.WorkerID, res.JobID, res.Err)
 		} else {
 			fmt.Printf("[AGG] worker=%d job=%d done\n",
-				res.WorkerId, res.JobId)
+				res.WorkerID, res.JobID)
 		}
 	}
 	close(done)
 }
+
+/* ---------------- MAIN ---------------- */
 
 func main() {
 	root := context.Background()
@@ -86,15 +107,15 @@ func main() {
 	defer cancel()
 
 	jobs := make(chan int, NUMJOBS)
-	results := make(chan Result, NUMWORKERS)
+	results := make(chan Result, NUMJOBS)
 	done := make(chan struct{})
-	
-	var wg sync.WaitGroup
-	wg.Add(NUMWORKERS)
+
+	var workerWG sync.WaitGroup
+	workerWG.Add(NUMWORKERS)
 
 	// FAN-OUT
-	for i := range(NUMWORKERS) {
-		go worker(ctx, i, jobs, results, &wg)
+	for i := 0; i < NUMWORKERS; i++ {
+		go worker(ctx, i, jobs, results, &workerWG)
 	}
 
 	// FAN-IN
@@ -113,10 +134,11 @@ func main() {
 	})
 
 	// wait for workers → then close results
-	wg.Wait()
+	workerWG.Wait()
 	close(results)
 
 	// wait for aggregator
 	<-done
 	fmt.Println("[main] clean shutdown")
 }
+```
