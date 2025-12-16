@@ -43,30 +43,31 @@ func process(ctx context.Context, in <-chan int) <-chan int {
 	return out
 }
 
-func consume(ctx context.Context, in <-chan int) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case val, ok := <-in:
-			if !ok {
-				return
-			}
-			fmt.Println("consumed:", val)
-		}
-	}
-}
-
+// Normally this is used because the other one depends on the input channel to complete which might not be the case always
 // func consume(ctx context.Context, in <-chan int) {
-// 	for val := range in {
+// 	for {
 // 		select {
 // 		case <-ctx.Done():
 // 			return
-// 		default:
+// 		case val, ok := <-in:
+// 			if !ok {
+// 				return
+// 			}
 // 			fmt.Println("consumed:", val)
 // 		}
 // 	}
 // }
+
+func consume(ctx context.Context, in <-chan int) {
+	for val := range in {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			fmt.Println("consumed:", val)
+		}
+	}
+}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
