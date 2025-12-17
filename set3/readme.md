@@ -4,144 +4,14 @@
 - Build fan-out worker system  
 - Build fan-in aggregator  
 - Build 3-stage pipeline  
-- Add error channel 
+- Add error channel
 
-### FAN-IN and FAN-OUT
+- Write select with timeout  
+- Add quit channel  
+- Build a multi-priority worker using select  
+- Implement graceful shutdown   
 
-This is a simple comcept where our operation is divided into two major parts:
-FAn-Out does the parallelization as it divided the input to multiple workers so they can parallely work on it.
-Fan-in takes the outputs from these multiple workers and combines it into a single result.
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"sync"
-	"time"
-)
-
-const NUMJOBS = 20
-const NUMWORKERS = 3
-
-type Result struct {
-	WorkerID int
-	JobID    int
-	Err      error
-}
-
-func progress(ctx context.Context) error {
-	x := 0
-	for i := 0; i < 10_000_000; i++ {
-		if i%1000 == 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-		}
-		x += i
-	}
-	_ = x
-	return nil
-}
-
-/* ---------------- FAN-OUT WORKER ---------------- */
-
-func worker(
-	ctx context.Context,
-	id int,
-	jobs <-chan int,
-	results chan<- Result,
-	wg *sync.WaitGroup,
-) {
-	defer wg.Done()
-	fmt.Printf("Worker %d started\n", id)
-
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Printf("Worker %d shutting down: %v\n", id, ctx.Err())
-			return
-
-		case job, ok := <-jobs:
-			if !ok {
-				fmt.Printf("Worker %d: jobs closed\n", id)
-				return
-			}
-
-			jobCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
-			err := progress(jobCtx)
-			cancel()
-
-			results <- Result{
-				WorkerID: id,
-				JobID:    job,
-				Err:      err,
-			}
-		}
-	}
-}
-
-/* ---------------- FAN-IN AGGREGATOR ---------------- */
-
-func aggregator(results <-chan Result, done chan<- struct{}) {
-	for res := range results {
-		if res.Err != nil {
-			fmt.Printf("[AGG] worker=%d job=%d failed: %v\n",
-				res.WorkerID, res.JobID, res.Err)
-		} else {
-			fmt.Printf("[AGG] worker=%d job=%d done\n",
-				res.WorkerID, res.JobID)
-		}
-	}
-	close(done)
-}
-
-/* ---------------- MAIN ---------------- */
-
-func main() {
-	root := context.Background()
-	ctx, cancel := context.WithCancel(root)
-	defer cancel()
-
-	jobs := make(chan int, NUMJOBS)
-	results := make(chan Result, NUMJOBS)
-	done := make(chan struct{})
-
-	var workerWG sync.WaitGroup
-	workerWG.Add(NUMWORKERS)
-
-	// FAN-OUT
-	for i := 0; i < NUMWORKERS; i++ {
-		go worker(ctx, i, jobs, results, &workerWG)
-	}
-
-	// FAN-IN
-	go aggregator(results, done)
-
-	// send jobs
-	for j := 0; j < NUMJOBS; j++ {
-		jobs <- j
-	}
-	close(jobs)
-
-	// global cancel
-	time.AfterFunc(2*time.Second, func() {
-		fmt.Println("[main] global cancel")
-		cancel()
-	})
-
-	// wait for workers → then close results
-	workerWG.Wait()
-	close(results)
-
-	// wait for aggregator
-	<-done
-	fmt.Println("[main] clean shutdown")
-}
-```
+### [FAN-IN and FAN-OUT](faninout.md)
 
 ### Three step pipeline
 
@@ -225,4 +95,65 @@ func main() {
 	stage2 := process(ctx, stage1)
 	consume(ctx, stage2)
 }
+```
+
+### Select theory
+
+- Select helps a goroutine wait on multiple channels at once.
+
+```go
+select {
+	case v := <-ch1:
+		// ch1 received
+	case ch2 <- x:
+		// sent on ch2
+	case <-time.After(1 * time.Second):
+    	// timeout
+	default:
+		// nothing ready
+}
+```
+
+- Blocks until one case is ready.
+- if multiple are read chooses one randomly.
+- if we have `default` tho, then it becomes non-blocking as the default is executed.
+- select is reevaluated at each iteration.
+- closed channels are always ready.
+```go
+ch := make(chan int)
+close(ch)
+
+v, ok := <-ch
+```
+
+i.e. this always works even when channel is empty as it returns default value and false.
+
+| Channel state   | Receive `<-ch`                | Send `ch <- x`                       |
+| --------------- | ----------------------------- | ------------------------------------ |
+| Open + has data | Ready                         | Ready (if buffer/receiver available) |
+| Open + empty    | Blocks                        | May block                            |
+| **Closed**      | **Always ready** (zero value) | ❌ **PANIC**                          |
+
+What timeouts matter?
+- time.After returns a channel after the specified time period
+- That channel competes in select and runs if no other condition returns true, meaning it can provide other conditions a specified time period + a graceful exit
+
+### Quit channel
+- Like we have discussed multiple times a goroutine does not automatically closes we need to signal it to stop/return.
+- For this we use channels that can be specifically used for that.
+```go
+quit := make(chan struct{})
+// why i wrote struct{} because zero allocation
+
+func worker(jobs <- chan int, quit <-chan struct{}) {
+	for {
+		select {
+			case job := <- jobs:
+				// do some work 
+			case <- quit:
+				return
+		}
+	}
+}
+// to close we can call close quit()
 ```
