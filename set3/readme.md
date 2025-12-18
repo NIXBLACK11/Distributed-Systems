@@ -7,9 +7,13 @@
 - Add error channel
 
 - Write select with timeout  
-- Add quit channel  
-- Build a multi-priority worker using select  
-- Implement graceful shutdown   
+- Add quit channel
+
+- Backpressure
+- Implement token bucket 
+- Implement leaky bucket 
+- Build a safe job distributor 
+- Add retry-with-backoff 
 
 ### [FAN-IN and FAN-OUT](faninout.md)
 
@@ -156,4 +160,31 @@ func worker(jobs <- chan int, quit <-chan struct{}) {
 	}
 }
 // to close we can call close quit()
+```
+
+### Backpressure
+
+Backpressure is a flow-control mechanism where a system deliberately slows or blocks producers when consumers cannot keep up, preventing unbounded resource usage and ensuring system stability under load.
+
+Simple example that blocks until we have resources:
+```go
+func worker(id int, jobs <-chan Job) {
+	for job := range jobs {
+		process(job)
+	}
+}
+
+func main() {
+	jobs := make(chan Job, 100)
+
+	// start consumers FIRST
+	for i := 0; i < 5; i++ {
+		go worker(i, jobs)
+	}
+
+	// producer
+	for i := 0; i < 1000; i++ {
+		jobs <- Job{ID: i} // blocks when buffer full
+	}
+}
 ```
