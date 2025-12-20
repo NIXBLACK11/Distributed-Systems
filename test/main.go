@@ -3,77 +3,62 @@ package main
 import (
 	"context"
 	"fmt"
-	"time"
+	"sync"
 )
 
-func generate(ctx context.Context, n int) <-chan int {
-	out := make(chan int)
+const NUMJOBS = 300
+const NUMWORKERS = 4
 
-	go func() {
-		defer close(out)
+func worker(workerId int, ctx context.Context, jobs <-chan int, wg *sync.WaitGroup) {
+	defer wg.Done() // Signal completion when worker finishes
 
-		for i := range n {
-			select {
-			case <-ctx.Done():
-				return
-			case out <- i:
-			}
-		}
-	}()
-
-	return out
-}
-
-func process(ctx context.Context, in <-chan int) <-chan int {
-	out := make(chan int)
-
-	go func() {
-		defer close(out)
-
-		for val := range in {
-			select {
-			case <-ctx.Done():
-				return
-			case out <- val * 2:
-				time.Sleep(200 * time.Millisecond)
-			}
-		}
-	}()
-
-	return out
-}
-
-// Normally this is used because the other one depends on the input channel to complete which might not be the case always
-// func consume(ctx context.Context, in <-chan int) {
-// 	for {
-// 		select {
-// 		case <-ctx.Done():
-// 			return
-// 		case val, ok := <-in:
-// 			if !ok {
-// 				return
-// 			}
-// 			fmt.Println("consumed:", val)
-// 		}
-// 	}
-// }
-
-func consume(ctx context.Context, in <-chan int) {
-	for val := range in {
+	for {
 		select {
 		case <-ctx.Done():
+			// Context cancelled, exit gracefully
+			fmt.Printf("Worker %d cancelled\n", workerId)
 			return
-		default:
-			fmt.Println("consumed:", val)
+		case jobId, ok := <-jobs:
+			if !ok {
+				// Channel closed, no more jobs
+				fmt.Printf("Worker %d finished - no more jobs\n", workerId)
+				return
+			}
+			fmt.Printf("Job %d being done by worker %d\n", jobId, workerId)
 		}
 	}
 }
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	rootContext := context.Background()
+	ctx, cancel := context.WithCancel(rootContext)
+
 	defer cancel()
-	
-	stage1 := generate(ctx, 10)
-	stage2 := process(ctx, stage1)
-	consume(ctx, stage2)
+
+	var wg sync.WaitGroup
+	wg.Add(NUMWORKERS)
+
+	jobs := make(chan int, 10)
+
+	// Start workers
+	for workerId := range NUMWORKERS {
+		go worker(workerId, ctx, jobs, &wg)
+	}
+
+	// Send jobs
+	go func() {
+		defer close(jobs) // Important: close channel when done sending
+		for jobId := range NUMJOBS {
+			select {
+			case <-ctx.Done():
+				fmt.Println("Job sender cancelled")
+				return
+			case jobs <- jobId:
+				// Job sent successfully
+			}
+		}
+	}()
+
+	wg.Wait()
+	fmt.Println("All workers finished")
 }
