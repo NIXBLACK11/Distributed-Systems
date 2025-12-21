@@ -202,3 +202,5 @@ Two philosophies help us control(as far as i know):
 2. Leaky Bucket
 
 ### [Token Bucket](tokenbucket.md)
+
+### [Leaky Bucket](leakybucket.md)

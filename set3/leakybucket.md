@@ -1,3 +1,14 @@
+## Token bucket
+
+### Core Idea:
+Requests are accepted, but proccessed at a steady rate like a leak.
+
+### Concept:
+No bursts allowed.
+Which means fixed output rate.
+
+## Code:
+```go
 package main
 
 import (
@@ -56,3 +67,6 @@ func main() {
 	// To wait for all to complete
 	time.Sleep(6 * time.Second)
 }
+```
+
+The reason this takes the function and the token the main does the function, is that token bucket tells if we can do the work leaky bucket says it will do the work at the said rate(no bursts).

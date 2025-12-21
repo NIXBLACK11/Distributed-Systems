@@ -8,7 +8,7 @@ The system produces permission at a steady rate.
 With some being at the beggining already.
 A task requires persmission to complete.
 
-Best way we can know is code:
+## Best way we can know is code:
 ```go
 package main
 
