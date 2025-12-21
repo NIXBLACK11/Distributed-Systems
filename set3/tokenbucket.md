@@ -1,3 +1,15 @@
+## Token bucket
+
+### Core Idea:
+Not everone is allowed in, but those who are can move fast.
+
+### Concept:
+The system produces permission at a steady rate.
+With some being at the beggining already.
+A task requires persmission to complete.
+
+Best way we can know is code:
+```go
 package main
 
 import (
@@ -63,3 +75,4 @@ func main() {
 		time.Sleep(130 * time.Millisecond)
 	}
 }
+```

@@ -188,3 +188,17 @@ func main() {
 	}
 }
 ```
+
+## ```What should a system do when the demand is more than the capacity?```
+
+We will see two ways we can handle these situations.
+
+The reason this exists:
+- Traffic is bursty
+- Resources being finite
+
+Two philosophies help us control(as far as i know):
+1. Token bucket
+2. Leaky Bucket
+
+### [Token Bucket](tokenbucket.md)
