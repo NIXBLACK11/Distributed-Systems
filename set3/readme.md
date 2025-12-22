@@ -204,3 +204,160 @@ Two philosophies help us control(as far as i know):
 ### [Token Bucket](tokenbucket.md)
 
 ### [Leaky Bucket](leakybucket.md)
+
+Things left to do
+
+4️⃣ Safe Job Distributor (bounded + cancelable)
+❌ Naive worker pool problem
+
+unbounded job submission
+
+no shutdown
+
+goroutine leaks
+
+✅ Design goals
+
+✔ bounded queue
+✔ backpressure
+✔ graceful shutdown
+✔ no goroutine leaks
+
+🏗 Safe Distributor
+type Distributor struct {
+	jobs chan Job
+	wg   sync.WaitGroup
+}
+
+func NewDistributor(workers, capacity int) *Distributor {
+	d := &Distributor{
+		jobs: make(chan Job, capacity),
+	}
+
+	for i := 0; i < workers; i++ {
+		d.wg.Add(1)
+		go d.worker(i)
+	}
+
+	return d
+}
+
+Worker
+func (d *Distributor) worker(id int) {
+	defer d.wg.Done()
+
+	for job := range d.jobs {
+		job()
+	}
+}
+
+Submit with backpressure
+func (d *Distributor) Submit(job Job) bool {
+	select {
+	case d.jobs <- job:
+		return true
+	default:
+		return false // queue full → backpressure
+	}
+}
+
+Graceful shutdown
+func (d *Distributor) Shutdown() {
+	close(d.jobs)
+	d.wg.Wait()
+}
+
+
+💡 This pattern is used everywhere (HTTP servers, queues, schedulers)
+
+5️⃣ Retry with Exponential Backoff
+❌ Problem
+
+Immediate retries under failure:
+
+amplify load
+
+DDOS yourself
+
+thundering herd
+
+✅ Backoff strategy
+
+Wait longer after each failure.
+
+1s → 2s → 4s → 8s → cap
+
+🧠 Rules
+
+exponential growth
+
+jitter (randomness)
+
+max retries
+
+context-aware
+
+✅ Go Implementation
+func Retry(
+	ctx context.Context,
+	maxRetries int,
+	baseDelay time.Duration,
+	fn func() error,
+) error {
+
+	var attempt int
+	delay := baseDelay
+
+	for {
+		err := fn()
+		if err == nil {
+			return nil
+		}
+
+		attempt++
+		if attempt >= maxRetries {
+			return err
+		}
+
+		select {
+		case <-time.After(delay):
+			delay *= 2
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+🧪 With jitter (production)
+jitter := time.Duration(rand.Int63n(int64(delay / 2)))
+time.Sleep(delay + jitter)
+
+🔥 How all this fits together
+Client
+  ↓
+Rate limiter (token bucket)
+  ↓
+Bounded queue (backpressure)
+  ↓
+Worker pool
+  ↓
+Retry w/ backoff
+
+
+This is exactly how real Go services are built.
+
+🧠 Key takeaways (burn these in)
+
+Blocking is control, not failure
+
+Channels ARE queues, rate limiters, and backpressure tools
+
+Token bucket → admission control
+
+Leaky bucket → execution smoothing
+
+Backoff prevents cascading failure
+1️⃣ API rate limiter middleware
+2️⃣ Worker pool with bounded jobs
+3️⃣ Retry wrapper for DB calls
+4️⃣ Load test (100k requests)

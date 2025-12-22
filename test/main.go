@@ -1,58 +1,93 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"sync"
 	"time"
 )
 
-type LeakyBucket struct {
-	queue chan func()
-}
+func worker(
+	ctx context.Context,
+	id int,
+	jobs <-chan string,
+	wg *sync.WaitGroup,
+	rateLimiter *time.Ticker,
+	visited map[string]bool,
+	mu *sync.Mutex,
+) {
+	defer wg.Done()
 
-func NewLeakyBucket(rate, capacity int) *LeakyBucket {
-	lb := &LeakyBucket{
-		queue: make(chan func(), capacity),
-	}
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Printf("worker %d stopped\n", id)
+			return
 
-	go func() {
-		interval := time.Second / time.Duration(rate)
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		case url, ok := <-jobs:
+			if !ok {
+				return
+			}
 
-		for task := range lb.queue {
-			<-ticker.C
-			task()
+			// visited check
+			mu.Lock()
+			if visited[url] {
+				mu.Unlock()
+				continue
+			}
+			visited[url] = true
+			mu.Unlock()
+
+			// rate limit
+			<-rateLimiter.C
+
+			req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				fmt.Println("error:", err)
+				continue
+			}
+
+			fmt.Printf("worker %d fetched %s [%d]\n", id, url, resp.StatusCode)
+			resp.Body.Close()
 		}
-	} ()
-
-	return lb
-}
-
-func (lb *LeakyBucket) Submit(task func()) bool {
-	select {
-	case lb.queue <- task:
-		return true
-	default:
-		return false
 	}
 }
 
 func main() {
-	lb := NewLeakyBucket(
-		2,  // 2 tasks per second
-		5,  // queue capacity
-	)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	for i := range (10) {
-		ok := lb.Submit(func() {
-			fmt.Printf("Processed job %d at %s\n", i, time.Now().Format(time.StampMilli))
-		})
+	jobs := make(chan string)
+	visited := make(map[string]bool)
+	var mu sync.Mutex
 
-		if !ok {
-			fmt.Printf("Job %d dropped (queue full)\n", i)
-		}
+	rateLimiter := time.NewTicker(200 * time.Millisecond)
+	defer rateLimiter.Stop()
+
+	var wg sync.WaitGroup
+
+	// start 50 workers
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go worker(ctx, i, jobs, &wg, rateLimiter, visited, &mu)
 	}
 
-	// To wait for all to complete
-	time.Sleep(6 * time.Second)
+	// seed URLs
+	go func() {
+		urls := []string{
+			"https://example.com",
+			"https://golang.org",
+			"https://httpbin.org/get",
+		}
+
+		for _, u := range urls {
+			jobs <- u
+		}
+		close(jobs)
+	}()
+
+	wg.Wait()
+	fmt.Println("crawl finished")
 }
