@@ -8,38 +8,39 @@ import (
 	"time"
 )
 
+const NUMWORKERS = 50
+
 func worker(
+	workerId int,
 	ctx context.Context,
-	id int,
 	jobs <-chan string,
-	wg *sync.WaitGroup,
-	rateLimiter *time.Ticker,
 	visited map[string]bool,
+	wg *sync.WaitGroup,
 	mu *sync.Mutex,
+	rateLimiter *time.Ticker,
 ) {
 	defer wg.Done()
 
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("worker %d stopped\n", id)
+			fmt.Printf("Worker %d stopped\n", workerId)
 			return
-
-		case url, ok := <-jobs:
+		case url, ok := <- jobs:
 			if !ok {
+				fmt.Printf("worker %d exiting (jobs channel closed)\n", workerId)
 				return
 			}
 
-			// visited check
 			mu.Lock()
 			if visited[url] {
 				mu.Unlock()
 				continue
 			}
+
 			visited[url] = true
 			mu.Unlock()
 
-			// rate limit
 			<-rateLimiter.C
 
 			req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -49,44 +50,43 @@ func worker(
 				continue
 			}
 
-			fmt.Printf("worker %d fetched %s [%d]\n", id, url, resp.StatusCode)
+			fmt.Printf("worker %d fetched %s [%d]\n", workerId, url, resp.StatusCode)
 			resp.Body.Close()
 		}
 	}
 }
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
 	defer cancel()
 
 	jobs := make(chan string)
 	visited := make(map[string]bool)
+
+	var wg sync.WaitGroup
 	var mu sync.Mutex
 
 	rateLimiter := time.NewTicker(200 * time.Millisecond)
 	defer rateLimiter.Stop()
 
-	var wg sync.WaitGroup
-
-	// start 50 workers
-	for i := 0; i < 50; i++ {
+	for workerId := range(NUMWORKERS) {
 		wg.Add(1)
-		go worker(ctx, i, jobs, &wg, rateLimiter, visited, &mu)
+		go worker(workerId, ctx, jobs, visited, &wg, &mu, rateLimiter)
 	}
 
-	// seed URLs
 	go func() {
-		urls := []string{
+		urls := []string {
 			"https://example.com",
 			"https://golang.org",
 			"https://httpbin.org/get",
 		}
 
-		for _, u := range urls {
-			jobs <- u
+		for _, url := range(urls) {
+			jobs <- url
 		}
+
 		close(jobs)
-	}()
+	} ()
 
 	wg.Wait()
 	fmt.Println("crawl finished")
