@@ -3,64 +3,76 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
 )
 
-const NUMWORKERS = 50
+var urls = []string{
+	"https://google.com",
+	"https://google.in",
+}
+
+const NUMWORKERS = 5
+
+func fetchUrlDetails(url string) []string {
+	return []string{
+		"https://google.us",
+		"https://google.can",
+		url, 
+	}
+}
 
 func worker(
 	workerId int,
 	ctx context.Context,
-	jobs <-chan string,
+	jobs chan string,
 	visited map[string]bool,
 	wg *sync.WaitGroup,
 	mu *sync.Mutex,
 	rateLimiter *time.Ticker,
 ) {
-	defer wg.Done()
-
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("Worker %d stopped\n", workerId)
 			return
-		case url, ok := <- jobs:
+
+		case url, ok := <-jobs:
 			if !ok {
-				fmt.Printf("worker %d exiting (jobs channel closed)\n", workerId)
 				return
 			}
 
-			mu.Lock()
-			if visited[url] {
+			// mark job done when function exits
+			func() {
+				defer wg.Done()
+
+				mu.Lock()
+				if visited[url] {
+					mu.Unlock()
+					return
+				}
+				visited[url] = true
 				mu.Unlock()
-				continue
-			}
 
-			visited[url] = true
-			mu.Unlock()
+				<-rateLimiter.C
 
-			<-rateLimiter.C
+				subUrls := fetchUrlDetails(url)
 
-			req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				fmt.Println("error:", err)
-				continue
-			}
+				for _, subUrl := range subUrls {
+					wg.Add(1)
+					jobs <- subUrl
+				}
 
-			fmt.Printf("worker %d fetched %s [%d]\n", workerId, url, resp.StatusCode)
-			resp.Body.Close()
+				fmt.Printf("worker %d processed %s\n", workerId, url)
+			}()
 		}
 	}
 }
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	jobs := make(chan string)
+	jobs := make(chan string, 100)
 	visited := make(map[string]bool)
 
 	var wg sync.WaitGroup
@@ -69,25 +81,21 @@ func main() {
 	rateLimiter := time.NewTicker(200 * time.Millisecond)
 	defer rateLimiter.Stop()
 
-	for workerId := range(NUMWORKERS) {
+	for i := range NUMWORKERS {
+		go worker(i, ctx, jobs, visited, &wg, &mu, rateLimiter)
+	}
+
+	for _, url := range urls {
 		wg.Add(1)
-		go worker(workerId, ctx, jobs, visited, &wg, &mu, rateLimiter)
+		jobs <- url
 	}
 
 	go func() {
-		urls := []string {
-			"https://example.com",
-			"https://golang.org",
-			"https://httpbin.org/get",
-		}
-
-		for _, url := range(urls) {
-			jobs <- url
-		}
-
+		wg.Wait()
 		close(jobs)
-	} ()
+	}()
 
-	wg.Wait()
-	fmt.Println("crawl finished")
+	// wait for context or completion
+	<-ctx.Done()
+	fmt.Println("JOB FINISHED")
 }
